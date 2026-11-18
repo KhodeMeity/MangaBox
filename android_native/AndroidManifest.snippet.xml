@@ -1,0 +1,22 @@
+<!-- داخل <activity android:name=".MainActivity" ...> ؛ launchMode را singleTask بگذارید -->
+<intent-filter>
+  <action android:name="android.intent.action.VIEW"/>
+  <category android:name="android.intent.category.DEFAULT"/>
+  <category android:name="android.intent.category.BROWSABLE"/>
+  <data android:scheme="content"/>
+  <data android:scheme="file"/>
+  <data android:mimeType="application/x-cbz"/>
+  <data android:mimeType="application/x-cbr"/>
+  <data android:mimeType="application/vnd.comicbook+zip"/>
+  <data android:mimeType="application/vnd.comicbook-rar"/>
+  <data android:mimeType="application/zip"/>
+  <data android:mimeType="application/x-rar-compressed"/>
+  <data android:mimeType="application/pdf"/>
+  <!-- تلگرام/فایل‌منیجرها اغلب octet-stream می‌فرستند؛ نوع واقعی را در اپ با magic bytes چک می‌کنیم -->
+  <data android:mimeType="application/octet-stream"/>
+</intent-filter>
+<intent-filter>   <!-- Share → Comic Reader -->
+  <action android:name="android.intent.action.SEND"/>
+  <category android:name="android.intent.category.DEFAULT"/>
+  <data android:mimeType="application/*"/>
+</intent-filter>

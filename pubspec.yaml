@@ -1,0 +1,41 @@
+name: mangabox
+description: MangaBox - offline, minimal, high-performance comic reader (CBZ / CBR / PDF)
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^3.6.1            # ZIP/CBZ با InputFileStream (خواندن از دیسک، نه RAM). نسخه 4.x API متفاوت دارد.
+  pdfrx: ^1.0.0              # PDF با PDFium (API بین نسخه‌ها فرق می‌کند)
+  photo_view: ^0.15.0
+  scrollable_positioned_list: ^0.3.8
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.0
+  crypto: ^3.0.3
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Waw
+      fonts:
+        - asset: assets/fonts/Waw-UltraLight.ttf
+          weight: 100
+        - asset: assets/fonts/Waw-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Waw-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Waw-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Waw-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Waw-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Waw-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Waw-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Waw-Black.ttf
+          weight: 900
