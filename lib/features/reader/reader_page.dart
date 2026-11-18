@@ -167,7 +167,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           maxScale: PhotoViewComputedScale.covered * 3,
           // دابل‌تپ: فیت ↔ پر کردن عرض/ارتفاع (covered)
           scaleStateCycle: (s) => s == PhotoViewScaleState.initial
-              ? PhotoViewScaleState.covered
+              ? PhotoViewScaleState.covering
               : PhotoViewScaleState.initial,
           onTapUp: (c, d, v) => _tap(d.globalPosition),
           filterQuality: FilterQuality.medium,

@@ -38,4 +38,10 @@ class Native {
       ((await _ch.invokeMethod<List>('rarList', {'path': path})) ?? []).cast<String>();
   static Future<Uint8List> rarExtract(String path, String name) async =>
       (await _ch.invokeMethod<Uint8List>('rarExtract', {'path': path, 'name': name}))!;
+
+  // PDF با android.graphics.PdfRenderer (بدون وابستگی خارجی)
+  static Future<int> pdfOpen(String path) async => (await _ch.invokeMethod<int>('pdfOpen', {'path': path}))!;
+  static Future<Uint8List> pdfPage(String path, int index, int width) async =>
+      (await _ch.invokeMethod<Uint8List>('pdfPage', {'path': path, 'index': index, 'width': width}))!;
+  static Future<void> pdfClose(String path) => _ch.invokeMethod('pdfClose', {'path': path});
 }

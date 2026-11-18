@@ -42,6 +42,9 @@ class MainActivity : FlutterActivity() {
                     result.success(pfd!!.detachFd())
                 } catch (e: Exception) { result.error("OPEN", e.message, null) }
                 "closeFd" -> { ParcelFileDescriptor.adoptFd(call.argument<Int>("fd")!!).close(); result.success(null) }
+                "pdfOpen" -> PdfBridge.open(call.argument("path")!!, result)
+                "pdfPage" -> PdfBridge.page(call.argument("path")!!, call.argument<Int>("index")!!, call.argument<Int>("width")!!, result)
+                "pdfClose" -> PdfBridge.close(call.argument("path")!!, result)
                 "rarList" -> result.success(RarBridge.list(call.argument("path")!!))
                 "rarExtract" -> result.success(RarBridge.extract(call.argument("path")!!, call.argument("name")!!))
                 else -> result.notImplemented()
