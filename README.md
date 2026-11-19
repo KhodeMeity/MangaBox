@@ -1,42 +1,29 @@
 # MangaBox 📚
 
-کمیک‌خوان کاملاً آفلاین برای اندروید (CBZ / CBR / PDF) با Flutter. فونت: **Waw**.
+کمیک‌خوان آفلاین و فارسی برای اندروید (Flutter). فرمت‌ها: **CBZ / ZIP / PDF** — فونت: Waw
 
-## ساخت APK با GitHub Actions (بدون نصب چیزی روی سیستم خودتان)
-```bash
-git init && git add . && git commit -m "MangaBox initial"
-git branch -M main
-git remote add origin https://github.com/<USER>/mangabox.git
-git push -u origin main
+## ساخت APK با GitHub Actions
+بعد از push روی شاخه‌ی `main`، تب **Actions** خودکار بیلد می‌گیرد؛ فایل APK در پایین همان اجرا، بخش **Artifacts** (`mangabox-apk`) است. روی بیشتر گوشی‌ها `arm64-v8a`.
+- Release خودکار: `git tag v2.0.0 && git push origin v2.0.0`
+- همه‌ی بیلدها با یک کلید ثابت (`tool/debug.keystore`) امضا می‌شوند؛ پس APK جدید روی قبلی نصب می‌شود (فقط برای استفاده‌ی شخصی؛ برای انتشار عمومی کلید خودتان را بسازید).
+
+## منطق برنامه
 ```
-- بعد از push، تب **Actions** ← workflow به اسم *Build MangaBox (Android)* خودکار اجرا می‌شود.
-- خروجی: همان صفحه‌ی اجرا ← بخش **Artifacts** ← `mangabox-apk` (سه APK: arm64-v8a، armeabi-v7a، x86_64؛ روی بیشتر گوشی‌ها `arm64-v8a`).
-- **Release خودکار:** `git tag v1.0.0 && git push origin v1.0.0` ← APK ها در بخش Releases مخزن منتشر می‌شوند.
-- اجرای دستی: Actions ← Run workflow.
-
-> پوشه‌ی `android/` داخل مخزن نیست؛ `tool/setup_android.py` در CI آن را با `flutter create` می‌سازد
-> و MainActivity، intent-filter ها و نام «MangaBox» را اعمال می‌کند. اجرای محلی: `python3 tool/setup_android.py`.
-
-> APK خروجی با کلید debug امضا می‌شود (برای نصب مستقیم مشکلی ندارد). برای Google Play / آپدیت پایدار باید keystore شخصی بسازید و به‌صورت GitHub Secrets به workflow بدهید.
-
-## فونت
-`assets/fonts/` شامل ۹ وزن Waw (UltraLight=100 … Black=900) و در `pubspec.yaml` ثبت شده؛ فونت پیش‌فرض کل تم است (`fontFamily: 'Waw'`).
-دو فایل `DemiBold` و `UltraBold` عمداً در پروژه نیستند چون وزن‌شان با `Medium` و `Bold` یکی است و فلاتر برای هر وزن فقط یک فایل می‌پذیرد. فونت هم حروف لاتین دارد هم فارسی/ارقام فارسی.
-
-## معماری
+Dart (رابط + کتابخانه)          Kotlin (موتور)
+────────────────────           ─────────────────────────────
+LibraryPage / ReaderPage  ⇄    ComicEngine
+LibraryStore (library.json)      • ZIP/CBZ  → java.util.zip.ZipFile
+PageCache (LRU بایت)             • PDF      → android.graphics.pdf.PdfRenderer
+                                 • content:// → fd مستقیم، وگرنه کپی موقت در cache
 ```
-lib/
- core/        ComicSource + Zip(Isolate) / Rar(native) / Pdf + PageCache (LRU)
- platform/    Native (MethodChannel)، ComicOpener (uri → fd → path)
- data/        ComicEntry + ComicRepo (Hive، کاور، پیشرفت)
- features/    reader (۳ حالت خواندن، Scrubber)، library
-android_native/   Kotlin (SAF، Intent، RAR bridge) + Manifest snippet
-tool/setup_android.py   ساخت/پچ پروژه‌ی اندروید
-```
+۱. **افزودن:** با انتخاب‌گر سیستم (SAF) فایل/پوشه انتخاب می‌شود؛ فقط آدرس ذخیره می‌شود (کپی نمی‌شود).
+۲. **باز کردن:** Dart می‌گوید «این آدرس را باز کن» ← Kotlin فرمت را از بایت‌های ابتدای فایل تشخیص می‌دهد ← تعداد صفحه‌ها را می‌دهد. هر صفحه با درخواست جداگانه می‌آید.
+۳. **فایل از تلگرام/فایل‌منیجر:** اگر اندروید دسترسی ماندگار ندهد، فایل یک‌بار در حافظه‌ی داخلی اپ کپی می‌شود تا بعد از بستن برنامه هم در کتابخانه بماند (با حذف از کتابخانه، کپی هم پاک می‌شود).
+۴. **حافظه:** PageCache فقط بایت‌های فشرده را تا ۸۰MB نگه می‌دارد؛ دیکد فقط تا عرض لازم انجام می‌شود. ۳ صفحه‌ی بعد و ۱ صفحه‌ی قبل پیش‌بارگذاری می‌شود.
+۵. **پیشرفت:** صفحه‌ی آخر، درصد و زمان با تأخیر ۶۰۰ms و همچنین هنگام رفتن به پس‌زمینه ذخیره می‌شود.
+۶. **خواندن:** ورق‌زدن افقی، مانگا (راست‌به‌چپ)، وبتون؛ دابل‌تپ برای زوم؛ تپ وسط برای منوها (حالت Immersive)؛ نوار پیمایش با پیش‌نمایش صفحه؛ قفل چرخش.
 
-## موارد باز (صادقانه)
-1. **CBR/RAR5:** `RarBridge.kt` فعلاً اسکلت است (`TODO`) و باید با libarchive کامل شود؛ تا آن موقع فایل‌های CBZ و PDF کار می‌کنند.
-2. **PDF** با `PdfRenderer` خود اندروید رندر می‌شود (پکیج `pdfrx` با Flutter جدید کامپایل نشد و حذف شد). اگر بیلد باز هم خطا داد، متن لاگ را بفرستید.
-3. حافظه‌ی `archive` (کش محتوا)، زوم Webtoon و فایل‌های تلگرام (دسترسی ماندگار) را روی گوشی واقعی تست کنید.
-4. آیکون لانچر هنوز پیش‌فرض Flutter است (پیشنهاد: پکیج `flutter_launcher_icons`).
-5. متن‌های UI فعلاً انگلیسی‌اند؛ فونت فارسی را پشتیبانی می‌کند و می‌توان رابط را فارسی/RTL کرد.
+## محدودیت‌های فعلی (صادقانه)
+- **CBR با RAR واقعی** هنوز پشتیبانی نمی‌شود و پیام فارسی نشان می‌دهد (اگر داخل فایل در واقع ZIP باشد، کار می‌کند). مرحله‌ی بعد، پس از اینکه هسته روی گوشی شما تأیید شد.
+- زوم وبتون فقط با دابل‌تپ است (پینچ ندارد).
+- فقط اندروید.

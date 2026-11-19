@@ -1,39 +1,44 @@
 import 'package:flutter/material.dart';
-import 'data/comic_repo.dart';
-import 'features/library/library_page.dart';
-import 'features/reader/reader_page.dart';
-import 'platform/native.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'engine.dart';
+import 'library_page.dart';
+import 'reader_page.dart';
+import 'store.dart';
+import 'strings.dart';
 
 final navKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ComicRepo.init();
   PaintingBinding.instance.imageCache
     ..maximumSizeBytes = 160 * 1024 * 1024
     ..maximumSize = 40;
-  runApp(const ComicApp());
+  final store = await LibraryStore.load();
+  runApp(MangaBoxApp(store: store));
 }
 
-class ComicApp extends StatefulWidget {
-  const ComicApp({super.key});
+class MangaBoxApp extends StatefulWidget {
+  const MangaBoxApp({super.key, required this.store});
+  final LibraryStore store;
   @override
-  State<ComicApp> createState() => _ComicAppState();
+  State<MangaBoxApp> createState() => _MangaBoxAppState();
 }
 
-class _ComicAppState extends State<ComicApp> {
+class _MangaBoxAppState extends State<MangaBoxApp> {
   @override
   void initState() {
     super.initState();
-    Native.listenIncoming(_openIncoming);          // اپ در پس‌زمینه بود
-    Native.initialFile().then((f) {                // اپ با کلیک روی فایل راه‌اندازی شد
-      if (f != null) WidgetsBinding.instance.addPostFrameCallback((_) => _openIncoming(f));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Engine.start(_incoming); // فایل‌های ورودی از تلگرام/فایل‌منیجر
+      widget.store.generateCovers();
     });
   }
 
-  Future<void> _openIncoming(PickedFile f) async {
-    final entry = await ComicRepo.register(f);
-    ReaderPage.open(navKey.currentContext!, entry);
+  Future<void> _incoming(PickedFile f) async {
+    final comic = await widget.store.add(f);
+    final ctx = navKey.currentContext;
+    if (ctx != null && ctx.mounted) ReaderPage.open(ctx, comic, widget.store);
+    widget.store.generateCovers();
   }
 
   @override
@@ -42,17 +47,20 @@ class _ComicAppState extends State<ComicApp> {
         .copyWith(surface: Colors.black);
     return MaterialApp(
       navigatorKey: navKey,
-      title: 'MangaBox',
+      title: S.appName,
       debugShowCheckedModeBanner: false,
+      locale: const Locale('fa'),
+      supportedLocales: const [Locale('fa'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Waw',
         colorScheme: scheme,
-        scaffoldBackgroundColor: Colors.black, // True Black (OLED)
+        scaffoldBackgroundColor: Colors.black, // مشکی واقعی (OLED)
         appBarTheme: const AppBarTheme(backgroundColor: Colors.black, elevation: 0, scrolledUnderElevation: 0),
       ),
-      home: const LibraryPage(),
+      home: LibraryPage(store: widget.store),
     );
   }
 }

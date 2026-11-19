@@ -1,19 +1,19 @@
 name: mangabox
-description: MangaBox - offline, minimal, high-performance comic reader (CBZ / CBR / PDF)
+description: MangaBox - کمیک‌خوان آفلاین
 publish_to: none
-version: 1.0.0+1
+version: 2.0.0+2
 environment:
   sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  archive: ^3.6.1            # ZIP/CBZ با InputFileStream (خواندن از دیسک، نه RAM). نسخه 4.x API متفاوت دارد.
+  flutter_localizations:
+    sdk: flutter
+  intl: any
   photo_view: ^0.15.0
   scrollable_positioned_list: ^0.3.8
-  hive_flutter: ^1.1.0
   path_provider: ^2.1.0
-  crypto: ^3.0.3
 
 flutter:
   uses-material-design: true
