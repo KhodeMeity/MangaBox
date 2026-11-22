@@ -38,14 +38,25 @@ if "application/x-cbz" not in x:
     x = x.replace("</activity>", snippet + "\n        </activity>", 1)
 mf.write_text(x)
 
-# 3) Gradle dependency
-for name, line in (("build.gradle.kts", 'implementation("androidx.documentfile:documentfile:1.0.1")'),
-                   ("build.gradle", "implementation 'androidx.documentfile:documentfile:1.0.1'")):
+# 2.5) آیکون برنامه (adaptive + قدیمی + تک‌رنگ) روی آیکون پیش‌فرض Flutter کپی می‌شود
+res_src = root / "android_native" / "res"
+if res_src.exists():
+    shutil.copytree(res_src, app / "src/main/res", dirs_exist_ok=True)
+
+# 3) Gradle dependencies
+DEPS = {
+    "documentfile": ('implementation("androidx.documentfile:documentfile:1.0.1")',
+                     "implementation 'androidx.documentfile:documentfile:1.0.1'"),
+    "junrar": ('implementation("com.github.junrar:junrar:7.5.5")',
+               "implementation 'com.github.junrar:junrar:7.5.5'"),
+}
+for name, kts in (("build.gradle.kts", True), ("build.gradle", False)):
     g = app / name
     if g.exists():
         t = g.read_text()
-        if "documentfile" not in t:
-            t += f"\n\ndependencies {{\n    {line}\n}}\n"
+        lines = [v[0 if kts else 1] for k, v in DEPS.items() if k not in t]
+        if lines:
+            t += "\n\ndependencies {\n    " + "\n    ".join(lines) + "\n}\n"
             g.write_text(t)
         break
 print("android setup done:", PKG)

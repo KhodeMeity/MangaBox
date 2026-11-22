@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'engine.dart';
 
+enum ReadStatus { unread, reading, finished }
+
 class Comic {
   Comic({
     required this.id, required this.uri, required this.title,
@@ -17,6 +19,12 @@ class Comic {
 
   /// درصد پیشرفت (۰ تا ۱). تا وقتی کمیک باز نشده صفر است.
   double get progress => (lastRead == 0 || pages <= 0) ? 0 : ((lastPage + 1) / pages).clamp(0.0, 1.0);
+
+  ReadStatus get status {
+    if (lastRead == 0) return ReadStatus.unread;
+    if (pages > 0 && lastPage >= pages - 1) return ReadStatus.finished;
+    return ReadStatus.reading;
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id, 'uri': uri, 'title': title, 'pages': pages,
@@ -37,6 +45,10 @@ class LibraryStore extends ChangeNotifier {
   final File _file;
   final List<Comic> _items = [];
   int mode = 0; // 0: چپ‌به‌راست، 1: مانگا، 2: وبتون
+  bool smartZoom = true; // دابل‌تپ روی پنل
+  bool dualPage = true; // دو صفحه‌ای در حالت افقی
+  bool spreadCover = true; // صفحه‌ی اول تنها (جلد)
+  int sort = 0; // ترتیب کتابخانه (LibrarySort.index)
   Timer? _timer;
   final _coverFailed = <String>{};
 
@@ -46,6 +58,10 @@ class LibraryStore extends ChangeNotifier {
       if (await s._file.exists()) {
         final j = jsonDecode(await s._file.readAsString()) as Map;
         s.mode = (j['mode'] ?? 0) as int;
+        s.sort = ((j['sort'] ?? 0) as int).clamp(0, 3);
+        s.smartZoom = (j['smartZoom'] ?? true) as bool;
+        s.dualPage = (j['dualPage'] ?? true) as bool;
+        s.spreadCover = (j['spreadCover'] ?? true) as bool;
         for (final c in (j['comics'] as List)) {
           s._items.add(Comic.fromJson(c as Map));
         }
@@ -54,12 +70,7 @@ class LibraryStore extends ChangeNotifier {
     return s;
   }
 
-  List<Comic> get items {
-    int key(Comic c) => c.lastRead != 0 ? c.lastRead : c.addedAt;
-    final l = [..._items];
-    l.sort((a, b) => key(b).compareTo(key(a)));
-    return l;
-  }
+  List<Comic> get all => List.of(_items);
 
   static String _idFor(String s) {
     var h = 1469598103934665603; // FNV-1a
@@ -89,6 +100,27 @@ class LibraryStore extends ChangeNotifier {
     _scheduleSave();
   }
 
+  void setDualPage(bool v) {
+    dualPage = v;
+    _scheduleSave();
+  }
+
+  void setSpreadCover(bool v) {
+    spreadCover = v;
+    _scheduleSave();
+  }
+
+  void setSmartZoom(bool v) {
+    smartZoom = v;
+    _scheduleSave();
+  }
+
+  void setSort(int v) {
+    sort = v;
+    notifyListeners();
+    _scheduleSave();
+  }
+
   void setMode(int m) {
     mode = m;
     _scheduleSave();
@@ -115,7 +147,7 @@ class LibraryStore extends ChangeNotifier {
     _timer?.cancel();
     try {
       final tmp = File('${_file.path}.tmp');
-      await tmp.writeAsString(jsonEncode({'mode': mode, 'comics': _items.map((c) => c.toJson()).toList()}));
+      await tmp.writeAsString(jsonEncode({'mode': mode, 'sort': sort, 'smartZoom': smartZoom, 'dualPage': dualPage, 'spreadCover': spreadCover, 'comics': _items.map((c) => c.toJson()).toList()}));
       await tmp.rename(_file.path);
     } catch (_) {}
     notifyListeners();
@@ -151,7 +183,7 @@ class LibraryStore extends ChangeNotifier {
   }
 
   Future<void> _makeCover(Comic c) async {
-    final doc = await Engine.open(c.uri);
+    final doc = await Engine.open(c.uri, cover: true);
     try {
       final bytes = await doc.page(0, width: 400);
       final codec = await ui.instantiateImageCodec(bytes, targetWidth: 360);

@@ -42,8 +42,8 @@ class PageCache {
   }
 
   /// پیش‌بارگذاری جهت‌دار (۳ صفحه‌ی جلو، ۱ صفحه‌ی عقب)
-  void prefetch(int center, int dir) {
-    for (var k = 1; k <= 3; k++) {
+  void prefetch(int center, int dir, {int ahead = 3}) {
+    for (var k = 1; k <= ahead; k++) {
       _warm(center + dir * k);
     }
     _warm(center - dir);
@@ -92,7 +92,10 @@ class ComicPageProvider extends ImageProvider<ComicPageProvider> {
   int get hashCode => Object.hash(docId, index, maxWidth);
 }
 
-int targetWidthFor(BuildContext c, {double factor = 2}) {
+/// عرض هدف دیکد (پیکسل). در حالت ورق‌زدن، «ضلع کوتاه» صفحه‌نمایش ملاک است (در حالت افقی هم
+/// صفحه‌ی عمودی با ارتفاع جا می‌شود، نه عرض) تا رم هدر نرود؛ وبتون عرض کامل می‌خواهد.
+int targetWidthFor(BuildContext c, {double factor = 2, bool useWidth = false}) {
   final mq = MediaQuery.of(c);
-  return math.max(480, (mq.size.width * mq.devicePixelRatio * factor).round());
+  final base = useWidth ? mq.size.width : mq.size.shortestSide;
+  return math.max(480, (base * mq.devicePixelRatio * factor).round());
 }

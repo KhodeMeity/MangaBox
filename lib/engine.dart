@@ -43,14 +43,17 @@ class ComicDoc {
 class Engine {
   static const _ch = MethodChannel('mangabox/engine');
 
-  static Future<ComicDoc> open(String uri) async {
+  /// cover=true فقط برای ساخت کاور است (در RAR فقط تا صفحه‌ی اول استخراج می‌شود).
+  static Future<ComicDoc> open(String uri, {bool cover = false}) async {
     try {
-      final m = await _ch.invokeMapMethod<String, dynamic>('open', {'uri': uri});
+      final m = await _ch.invokeMapMethod<String, dynamic>('open', {'uri': uri, 'cover': cover});
       return ComicDoc._(m!['id'] as int, m['pages'] as int, m['type'] as String);
     } on PlatformException catch (e) {
       switch (e.code) {
-        case 'RAR':
-          throw ComicError(S.rarUnsupported);
+        case 'RAR5':
+          throw ComicError(S.rar5Unsupported);
+        case 'RAR_BAD':
+          throw ComicError(S.rarBroken, e.message);
         case 'NO_IMAGES':
           throw ComicError(S.noImages);
         case 'FORMAT':

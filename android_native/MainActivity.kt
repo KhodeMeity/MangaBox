@@ -30,7 +30,7 @@ class MainActivity : FlutterActivity() {
                     queue.clear()
                     result.success(null)
                 }
-                "open" -> engine.open(call.argument<String>("uri")!!, result)
+                "open" -> engine.open(call.argument<String>("uri")!!, call.argument<Boolean>("cover") ?: false, result)
                 "page" -> engine.page(call.argument<Int>("id")!!, call.argument<Int>("index")!!, call.argument<Int>("width") ?: 0, result)
                 "close" -> engine.close(call.argument<Int>("id")!!, result)
                 "pickFiles" -> {

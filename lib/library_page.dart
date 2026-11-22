@@ -4,13 +4,34 @@ import 'engine.dart';
 import 'reader_page.dart';
 import 'store.dart';
 import 'strings.dart';
+import 'text_utils.dart';
 
-class LibraryPage extends StatelessWidget {
+enum LibrarySort { lastRead, added, name, progress }
+
+class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, required this.store});
   final LibraryStore store;
 
-  Future<void> _import(BuildContext ctx, Future<List<PickedFile>> Function() pick, {required bool folder}) async {
-    final messenger = ScaffoldMessenger.of(ctx);
+  @override
+  State<LibraryPage> createState() => _LibraryPageState();
+}
+
+class _LibraryPageState extends State<LibraryPage> {
+  LibraryStore get store => widget.store;
+  bool searching = false;
+  String query = '';
+  ReadStatus? filter; // null = همه
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ───── افزودن ─────
+  Future<void> _import(Future<List<PickedFile>> Function() pick, {required bool folder}) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final files = await pick();
       if (files.isEmpty) {
@@ -27,17 +48,17 @@ class LibraryPage extends StatelessWidget {
     }
   }
 
-  void _sheet(BuildContext ctx) => showModalBottomSheet(
-        context: ctx,
+  void _sheet() => showModalBottomSheet(
+        context: context,
         backgroundColor: const Color(0xFF111111),
-        builder: (_) => SafeArea(
+        builder: (ctx) => SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
               leading: const Icon(Icons.insert_drive_file_outlined),
               title: const Text(S.addFiles),
               onTap: () {
                 Navigator.pop(ctx);
-                _import(ctx, Engine.pickFiles, folder: false);
+                _import(Engine.pickFiles, folder: false);
               },
             ),
             ListTile(
@@ -45,49 +66,148 @@ class LibraryPage extends StatelessWidget {
               title: const Text(S.scanFolder),
               onTap: () {
                 Navigator.pop(ctx);
-                _import(ctx, Engine.pickFolder, folder: true);
+                _import(Engine.pickFolder, folder: true);
               },
             ),
           ]),
         ),
       );
 
+  // ───── فیلتر و ترتیب ─────
+  List<Comic> _visible(List<Comic> all) {
+    final q = normalizeFa(query.trim());
+    final list = all.where((c) {
+      if (filter != null && c.status != filter) return false;
+      return q.isEmpty || normalizeFa(c.title).contains(q);
+    }).toList();
+
+    int lastKey(Comic c) => c.lastRead != 0 ? c.lastRead : c.addedAt;
+    switch (LibrarySort.values[store.sort.clamp(0, 3)]) {
+      case LibrarySort.lastRead:
+        list.sort((a, b) => lastKey(b).compareTo(lastKey(a)));
+      case LibrarySort.added:
+        list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+      case LibrarySort.name:
+        list.sort((a, b) => naturalCompare(a.title, b.title));
+      case LibrarySort.progress:
+        list.sort((a, b) => b.progress.compareTo(a.progress));
+    }
+    return list;
+  }
+
+  void _closeSearch() {
+    _searchCtrl.clear();
+    setState(() {
+      searching = false;
+      query = '';
+    });
+  }
+
+  PreferredSizeWidget _appBar() => AppBar(
+        title: searching
+            ? TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(hintText: S.searchHint, border: InputBorder.none),
+                onChanged: (v) => setState(() => query = v),
+              )
+            : const Text(S.appName, style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5)),
+        actions: [
+          if (searching)
+            IconButton(tooltip: S.closeSearch, icon: const Icon(Icons.close), onPressed: _closeSearch)
+          else
+            IconButton(
+              tooltip: S.searchTooltip,
+              icon: const Icon(Icons.search),
+              onPressed: () => setState(() => searching = true),
+            ),
+          PopupMenuButton<LibrarySort>(
+            tooltip: S.sortTooltip,
+            icon: const Icon(Icons.sort),
+            onSelected: (v) => store.setSort(v.index),
+            itemBuilder: (_) {
+              final cur = LibrarySort.values[store.sort.clamp(0, 3)];
+              return [
+                CheckedPopupMenuItem(value: LibrarySort.lastRead, checked: cur == LibrarySort.lastRead, child: const Text(S.sortLastRead)),
+                CheckedPopupMenuItem(value: LibrarySort.added, checked: cur == LibrarySort.added, child: const Text(S.sortAdded)),
+                CheckedPopupMenuItem(value: LibrarySort.name, checked: cur == LibrarySort.name, child: const Text(S.sortName)),
+                CheckedPopupMenuItem(value: LibrarySort.progress, checked: cur == LibrarySort.progress, child: const Text(S.sortProgress)),
+              ];
+            },
+          ),
+        ],
+      );
+
+  Widget _chips(List<Comic> all) {
+    int n(ReadStatus? s) => s == null ? all.length : all.where((c) => c.status == s).length;
+    Widget chip(String label, ReadStatus? s) => Padding(
+          padding: const EdgeInsetsDirectional.only(end: 8),
+          child: ChoiceChip(
+            label: Text('$label  ${S.fa(n(s))}'),
+            selected: filter == s,
+            onSelected: (_) => setState(() => filter = s),
+          ),
+        );
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        children: [
+          chip(S.filterAll, null),
+          chip(S.filterReading, ReadStatus.reading),
+          chip(S.filterFinished, ReadStatus.finished),
+          chip(S.filterUnread, ReadStatus.unread),
+        ],
+      ),
+    );
+  }
+
+  Widget _empty(IconData icon, String title, [String? hint]) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 64, color: Colors.white24),
+            const SizedBox(height: 16),
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            if (hint != null) ...[
+              const SizedBox(height: 8),
+              Text(hint, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, height: 1.8)),
+            ],
+          ]),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const Text(S.appName, style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5)),
-        ),
+        appBar: _appBar(),
         floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => _sheet(context),
+          onPressed: _sheet,
           icon: const Icon(Icons.add),
           label: const Text(S.add),
         ),
         body: ListenableBuilder(
           listenable: store,
           builder: (_, __) {
-            final list = store.items;
-            if (list.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.auto_stories, size: 64, color: Colors.white24),
-                    const SizedBox(height: 16),
-                    const Text(S.emptyTitle, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    const Text(S.emptyHint, textAlign: TextAlign.center, style: TextStyle(color: Colors.white60, height: 1.8)),
-                  ]),
-                ),
-              );
-            }
-            return GridView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 160, childAspectRatio: .56, crossAxisSpacing: 12, mainAxisSpacing: 12,
+            final all = store.all;
+            if (all.isEmpty) return _empty(Icons.auto_stories, S.emptyTitle, S.emptyHint);
+            final list = _visible(all);
+            return Column(children: [
+              _chips(all),
+              Expanded(
+                child: list.isEmpty
+                    ? _empty(Icons.search_off, S.noResults)
+                    : GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 160, childAspectRatio: .56, crossAxisSpacing: 12, mainAxisSpacing: 12,
+                        ),
+                        itemCount: list.length,
+                        itemBuilder: (c, i) => _Tile(comic: list[i], store: store),
+                      ),
               ),
-              itemCount: list.length,
-              itemBuilder: (c, i) => _Tile(comic: list[i], store: store),
-            );
+            ]);
           },
         ),
       );
@@ -127,6 +247,11 @@ class _Tile extends StatelessWidget {
               hasCover
                   ? Image.file(File(comic.cover!), fit: BoxFit.cover, cacheWidth: 360)
                   : Container(color: const Color(0xFF161616), child: const Icon(Icons.menu_book, color: Colors.white24)),
+              if (comic.status == ReadStatus.finished)
+                const Positioned(
+                  top: 6, left: 6,
+                  child: Icon(Icons.check_circle, size: 20, color: Color(0xFFFFD166)),
+                ),
               if (comic.progress > 0)
                 Positioned(
                   left: 0, right: 0, bottom: 0,

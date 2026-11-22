@@ -8,9 +8,12 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import com.github.junrar.Archive
+import com.github.junrar.exception.UnsupportedRarV5Exception
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -24,6 +27,7 @@ class EngineError(val code: String, message: String) : Exception(message)
  * موتور خواندن کمیک (کاملاً native و بدون پکیج خارجی):
  *   ZIP/CBZ → java.util.zip.ZipFile (دسترسی تصادفی، بدون کش حافظه)
  *   PDF     → android.graphics.pdf.PdfRenderer
+ *   RAR/CBR → junrar (RAR نسخه‌ی ۴؛ RAR5 هنوز نه) با استخراج ترتیبی در cache
  * Dart فقط می‌گوید «صفحه‌ی N را بده» و بایت‌های تصویر را می‌گیرد.
  */
 class ComicEngine(private val ctx: Context) {
@@ -93,6 +97,26 @@ class ComicEngine(private val ctx: Context) {
         }
     }
 
+    /** صفحه‌های RAR از فایل‌های استخراج‌شده در cache خوانده می‌شوند. */
+    class RarSession(
+        private val files: List<File>,
+        private val deleteOnClose: File?,
+        pfd: ParcelFileDescriptor?,
+        private val total: Int = files.size,
+    ) : Session(pfd) {
+        override val type = "rar"
+        override val pageCount get() = total
+        override fun page(index: Int, width: Int): ByteArray {
+            if (index >= files.size) throw EngineError("PAGE", "page not extracted")
+            return files[index].readBytes()
+        }
+
+        override fun close() {
+            try { deleteOnClose?.delete() } catch (_: Exception) {}
+            super.close()
+        }
+    }
+
     // ───────────────────────── API ─────────────────────────
     private fun async(result: MethodChannel.Result, block: () -> Any?) {
         pool.execute {
@@ -107,10 +131,12 @@ class ComicEngine(private val ctx: Context) {
         }
     }
 
-    fun open(uriStr: String, result: MethodChannel.Result) = async(result) {
+    /** cover=true: فقط برای ساخت کاور (در RAR فقط تا صفحه‌ی اول استخراج می‌شود). */
+    fun open(uriStr: String, cover: Boolean, result: MethodChannel.Result) = async(result) {
         val (file, pfd) = materialize(Uri.parse(uriStr))
         try {
-            val s = openFile(file, pfd)
+            val key = Integer.toHexString(uriStr.hashCode()) + "_" + file.length()
+            val s = openFile(file, pfd, key, cover)
             val id = ids.getAndIncrement()
             sessions[id] = s
             mapOf("id" to id, "pages" to s.pageCount, "type" to s.type)
@@ -137,7 +163,7 @@ class ComicEngine(private val ctx: Context) {
         b.copyOf(if (n < 0) 0 else n)
     }
 
-    private fun openFile(file: File, pfd: ParcelFileDescriptor?): Session {
+    private fun openFile(file: File, pfd: ParcelFileDescriptor?, key: String, cover: Boolean): Session {
         val m = magic(file)
         fun starts(vararg x: Int) = m.size >= x.size && x.indices.all { (m[it].toInt() and 0xFF) == x[it] }
         return when {
@@ -161,7 +187,7 @@ class ComicEngine(private val ctx: Context) {
                     throw EngineError("PDF_LOCKED", "password")
                 }
             }
-            starts(0x52, 0x61, 0x72, 0x21) -> throw EngineError("RAR", "rar")   // "Rar!"
+            starts(0x52, 0x61, 0x72, 0x21) -> openRar(file, key, cover, pfd)   // "Rar!"
             else -> throw EngineError("FORMAT", "unknown format")
         }
     }
@@ -204,6 +230,95 @@ class ComicEngine(private val ctx: Context) {
             ?.drop(2)
             ?.forEach { it.delete() }
         return dst
+    }
+
+    // ───────────────────────── RAR ─────────────────────────
+    private val rarLock = Any()
+
+    private val discard = object : OutputStream() {
+        override fun write(b: Int) {}
+        override fun write(b: ByteArray, off: Int, len: Int) {}
+    }
+
+    /**
+     * RAR (به‌خصوص «solid») دسترسی تصادفی ندارد؛ پس همه‌ی تصویرها یک‌بار به‌ترتیبِ داخل آرشیو
+     * در cacheDir/rar/<key>/ استخراج می‌شوند و بعد مثل CBZ خوانده می‌شوند.
+     * فقط ۲ کمیک آخر در cache نگه داشته می‌شود. RAR5 توسط junrar پشتیبانی نمی‌شود.
+     */
+    private fun openRar(file: File, key: String, cover: Boolean, pfd: ParcelFileDescriptor?): Session =
+        synchronized(rarLock) {
+            val head = magic(file)
+            if (head.size > 6 && head[6].toInt() == 1) throw EngineError("RAR5", "rar5")   // Rar!\x1A\x07\x01
+
+            val root = File(ctx.cacheDir, "rar").apply { mkdirs() }
+            val dir = File(root, key)
+            val done = File(dir, ".done")
+            val orderFile = File(dir, ".order")
+
+            if (!cover && done.exists() && orderFile.exists()) {         // قبلاً استخراج شده
+                return@synchronized rarFromDir(root, dir, orderFile, pfd)
+            }
+
+            try {
+                val archive = Archive(file)
+                try {
+                    @Suppress("DEPRECATION")
+                    fun nameOf(i: Int) = archive.fileHeaders[i].fileNameString.replace('\\', '/')
+
+                    val headers = archive.fileHeaders
+                    val entries = ArrayList<Pair<Int, String>>()           // (شماره در آرشیو، نام)
+                    for (i in headers.indices) {
+                        if (headers[i].isDirectory) continue
+                        val n = nameOf(i)
+                        if (isImage(n)) entries.add(Pair(i, n))
+                    }
+                    if (entries.isEmpty()) throw EngineError("NO_IMAGES", "no images")
+                    val sorted = entries.sortedWith { a, b -> natural(a.second, b.second) }
+
+                    if (cover) {
+                        val target = sorted[0].first
+                        val out = File(root, "cover_$key.bin")
+                        for (i in headers.indices) {
+                            if (i > target) break
+                            if (headers[i].isDirectory) continue
+                            if (i == target) out.outputStream().use { archive.extractFile(headers[i], it) }
+                            else archive.extractFile(headers[i], discard)    // برای solid لازم است
+                        }
+                        return@synchronized RarSession(listOf(out), out, pfd, sorted.size)
+                    }
+
+                    dir.deleteRecursively()
+                    dir.mkdirs()
+                    val wanted = entries.map { it.first }.toHashSet()
+                    for (i in headers.indices) {
+                        if (headers[i].isDirectory) continue
+                        if (wanted.contains(i)) File(dir, "$i.bin").outputStream().use { archive.extractFile(headers[i], it) }
+                        else archive.extractFile(headers[i], discard)
+                    }
+                    orderFile.writeText(sorted.joinToString("\n") { it.first.toString() })
+                    done.writeText("ok")
+                } finally {
+                    try { archive.close() } catch (_: Exception) {}
+                }
+            } catch (e: EngineError) {
+                throw e
+            } catch (e: UnsupportedRarV5Exception) {
+                throw EngineError("RAR5", "rar5")
+            } catch (e: Throwable) {
+                throw EngineError("RAR_BAD", e.toString())
+            }
+            rarFromDir(root, dir, orderFile, pfd)
+        }
+
+    private fun rarFromDir(root: File, dir: File, orderFile: File, pfd: ParcelFileDescriptor?): Session {
+        val files = orderFile.readLines().filter { it.isNotBlank() }.map { File(dir, it.trim() + ".bin") }
+        dir.setLastModified(System.currentTimeMillis())
+        root.listFiles()
+            ?.filter { it.isDirectory && it != dir }
+            ?.sortedByDescending { it.lastModified() }
+            ?.drop(1)
+            ?.forEach { it.deleteRecursively() }
+        return RarSession(files, null, pfd)
     }
 
     // ───────────────────────── کمکی‌ها ─────────────────────────
