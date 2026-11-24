@@ -50,6 +50,32 @@ DEPS = {
     "junrar": ('implementation("com.github.junrar:junrar:7.5.5")',
                "implementation 'com.github.junrar:junrar:7.5.5'"),
 }
+NO_SHRINK = {
+    True: """
+
+// mangabox-no-shrink: R8 با کلاس‌های ناموجودِ junrar (VFS/slf4j) خطا می‌دهد؛ برای APK شخصی shrink لازم نیست.
+android {
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+    }
+}
+""",
+    False: """
+
+// mangabox-no-shrink: R8 با کلاس‌های ناموجودِ junrar (VFS/slf4j) خطا می‌دهد؛ برای APK شخصی shrink لازم نیست.
+android {
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+""",
+}
 for name, kts in (("build.gradle.kts", True), ("build.gradle", False)):
     g = app / name
     if g.exists():
@@ -57,6 +83,8 @@ for name, kts in (("build.gradle.kts", True), ("build.gradle", False)):
         lines = [v[0 if kts else 1] for k, v in DEPS.items() if k not in t]
         if lines:
             t += "\n\ndependencies {\n    " + "\n    ".join(lines) + "\n}\n"
-            g.write_text(t)
+        if "mangabox-no-shrink" not in t:
+            t += NO_SHRINK[kts]
+        g.write_text(t)
         break
 print("android setup done:", PKG)
